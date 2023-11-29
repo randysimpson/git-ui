@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Git-UI</title>
+    <!-- <link rel="stylesheet" href="style.css"> -->
+  </head>
+  <body>
+    <h1>Git UI</h1>
+    <canvas id="apiStatus" width="900" height="400" style="border:1px solid #000000;"></canvas>
+    <canvas id="gitCanvas" width="900" height="400" style="border:1px solid #000000;"></canvas>
+    <script>
+        function getBranch() {
+            //setInterval(() => {
+                fetch('/api/branch')
+                .then(response => response.json())
+                .then(branchJson => {
+                    fetch('/api/log')
+                        .then(response => response.json())
+                        .then(logJson => draw(branchJson, logJson));
+                });
+            //}, 1000);
+            
+        }
+
+        // drawBranches = (data) => {
+        //     console.log(data);
+        // }
+        const branches = []
+        let drawing = false;
+
+        addBranch = (ctx, name, selected) => {
+            let x = 10;
+            if(branches.length > 0) {
+                x = branches[branches.length - 1].x + branches[branches.length - 1].w + 20
+            }
+            ctx.textBaseline = "middle";
+            ctx.font = "14px serif";
+            const m = ctx.measureText(name);
+            branches.push({
+                x,
+                y: 10,
+                w: Math.ceil(m.width) + 30,
+                h: 50,
+                name,
+                selected,
+            });
+        }
+
+        drawBranches = (ctx) => {
+            for(let i = 0; i < branches.length; i++) {
+                ctx.textBaseline = "middle";
+                ctx.font = "14px serif";
+                if(branches[i].selected) {
+                    ctx.fillStyle = "rgba(10, 200, 20, .7)";
+                } else if(branches[i].name.startsWith("origin/")) {
+                    ctx.fillStyle = "rgba(200, 0, 0, .7)";
+                } else {
+                    ctx.fillStyle = "rgba(180, 150, 100, .7)";
+                }
+                roundedRect(ctx, branches[i].x, branches[i].y, branches[i].w, branches[i].h, 5);
+                ctx.fill();
+                ctx.fillStyle = "rgb(0, 0, 0)";
+                ctx.fillText(branches[i].name, 15 + branches[i].x, branches[i].h/2 + branches[i].y);
+            }
+        }
+
+        getBranchAtLoc = (x, y) => {
+            for(let i = 0; i < branches.length; i++) {
+                if(x > branches[i].x && x < branches[i].x + branches[i].w && y > branches[i].y && y < branches[i].y + branches[i].h) {
+                    return branches[i];
+                }
+            }
+        }
+
+        function draw(branchJson, logs) {
+            //reset selected branch
+            for(let i = 0; i < branches.length; i++) {
+                if(branches[i].selected) {
+                    branches[i].selected = false;
+                }
+            }
+            drawing = true;
+            const canvas = document.getElementById("gitCanvas");
+            if (canvas.getContext) {
+                const ctx = canvas.getContext("2d");
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // for(let j = 0; j < branches.length; j++) {
+                //     branches.pop();
+                // }
+
+                // for(let i = 0; i < branchJson.branches.length; i++) {
+                //     addBranch(ctx, branchJson.branches[i], branchJson.selectedBranch == branchJson.branches[i]);
+                // }
+
+                //drawBranches(ctx);
+
+                //draw some commit bubbles...
+                let xLeft = 0;
+                for(let i = logs.length-17; i >= 0; i--) {
+                    ctx.textBaseline = "middle";
+                    ctx.font = "14px serif";
+                    const m = ctx.measureText(logs[i].commit.substring(0, 5));
+                    ctx.fillStyle = "rgba(60, 50, 180, .7)";
+                    roundedRect(ctx, 10 + xLeft, 100, 10 + m.width, 50, 5);
+                    ctx.fill();
+                    ctx.fillStyle = "rgb(0, 0, 0)";
+                    ctx.fillText(logs[i].commit.substring(0, 5), 15 + xLeft, 50/2 + 100);
+
+                    // ctx.beginPath();
+                    // ctx.moveTo(xLeft, 50);
+                    // ctx.lineTo(xLeft, 175);
+                    // ctx.stroke();
+
+                    if (xLeft > 0) {
+                        arrow(ctx, xLeft + 10, 50/2 + 100, xLeft - 5, 50/2 + 100, 5, 3);
+                    }
+
+                    //check for remote branch
+                    if(logs[i].branches) {
+                        for(let j = 0; j < logs[i].branches.length; j++) {
+                            let exists = branches.filter((item) => item.name === logs[i].branches[j]);
+                            if(exists.length == 0) {
+                                addBranch(ctx, logs[i].branches[j], false);
+                                exists = branches.filter((item) => item.name === logs[i].branches[j]);
+                            }
+                            if(exists.length == 1) {
+                                arrow(ctx, exists[0].x + exists[0].w/2, exists[0].y + exists[0].h, xLeft + 10 + m.width/2, 100, 7, 4)
+                            }
+                        }
+                    }
+
+                    xLeft += m.width + 25
+                }
+
+                if(branchJson.branches) {
+                    for(let i = 0; i < branchJson.branches.length; i++) {
+                        if(branchJson.branches[i].startsWith("(HEAD detached at ")) {
+                            for(let j = 0; j < branches.length; j++) {
+                                if(branches[j].name === "HEAD") {
+                                    branches[j].selected = true;
+                                }
+                            }
+                        } else {
+                            const exists = branches.filter((item) => item.name === branchJson.branches[i]);
+                            if(exists.length == 0) {
+                                addBranch(ctx, branchJson.branches[i], branchJson.selectedBranch == branchJson.branches[i]);
+                                // look up commits?
+                            } else if(branchJson.selectedBranch === branchJson.branches[i]) {
+                                for(let j = 0; j < branches.length; j++) {
+                                    if(branches[j].name === branchJson.branches[i]) {
+                                        branches[j].selected = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                drawBranches(ctx);
+            }
+
+            // canvas.addEventListener(
+            //     "mousemove",
+            //     (e) => {
+            //         console.log(e.offsetX, e.offsetY);
+            //     },
+            //     false,
+            // );
+            drawing = false;
+        }
+
+        function roundedRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x, y + radius);
+            ctx.arcTo(x, y + height, x + radius, y + height, radius);
+            ctx.arcTo(x + width, y + height, x + width, y + height - radius, radius);
+            ctx.arcTo(x + width, y, x + width - radius, y, radius);
+            ctx.arcTo(x, y, x, y + radius, radius);
+            ctx.stroke();
+        }
+
+        arrow = (ctx, x, y, endX, endY, arrowWidth, arrowHeight) => {
+            // ctx.beginPath();
+            // ctx.moveTo(x, y);
+            // ctx.lineTo(endX - arrowWidth, endY);
+            // ctx.stroke();
+
+            // ctx.beginPath();
+            // ctx.moveTo(endX - arrowWidth, endY - arrowHeight);
+            // ctx.lineTo(endX, endY);
+            // ctx.lineTo(endX - arrowWidth, endY + arrowHeight);
+            // ctx.lineTo(endX - arrowWidth, endY - arrowHeight);
+            // ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(endX + arrowWidth, endY);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(endX + arrowWidth, endY - arrowHeight);
+            ctx.lineTo(endX, endY);
+            ctx.lineTo(endX + arrowWidth, endY + arrowHeight);
+            ctx.lineTo(endX + arrowWidth, endY - arrowHeight);
+            ctx.stroke();
+        }
+
+        function initPage() {
+            getState();
+        }
+        let stateUpdate;
+        const stateItems = [];
+        let stateClickItems = [];
+        getStateClickAtLoc = (x, y) => {
+            for(let i = 0; i < stateClickItems.length; i++) {
+                if(x > stateClickItems[i].x && x < stateClickItems[i].x + stateClickItems[i].w && y > stateClickItems[i].y && y < stateClickItems[i].y + stateClickItems[i].h) {
+                    return stateClickItems[i];
+                }
+            }
+        }
+        let loadingState = false;
+        getState = () => {
+            //setInterval(() => {
+                fetch('/api/state')
+                    .then(response => response.json())
+                    .then(stateJson => {
+                        stateJson.lastUpdate = new Date(stateJson.lastUpdate);
+                        if(!stateUpdate || stateUpdate !== stateJson.lastUpdate) {
+                            stateItems.push(...stateJson.items);
+                            drawState();
+                        }
+                        stateUpdate = stateJson.lastUpdate;
+
+                        getStateUpdate()
+                    });
+            //}, 1000);
+        }
+        getStateUpdate = () => {
+            return fetch(`/api/state?lastUpdate=${stateUpdate.getTime()}`)
+                .then(response => response.json())
+                .then(stateJson => {
+                    stateJson.lastUpdate = new Date(stateJson.lastUpdate);
+                    if(!stateUpdate || stateUpdate !== stateJson.lastUpdate) {
+                        //update and append items
+                        for(let i = 0; i < stateJson.items.length; i++) {
+                            if(stateItems.filter((item) => item.id === stateJson.items[i].id).length == 1) {
+                                //update
+                                for(let j = 0; j < stateItems.length; j++) {
+                                    if(stateItems[j].id === stateJson.items[i].id) {
+                                        stateItems[j] = stateJson.items[i];
+                                        break;
+                                    }
+                                }
+                            } else {
+                                stateItems.push(stateJson.items[i]);
+                            }
+                        }
+                        drawState();
+                    }
+                    stateUpdate = stateJson.lastUpdate;
+
+                    return getStateUpdate();
+                })
+                .catch(err => {
+                    console.error(err);
+                    return getStateUpdate();
+                });
+        }
+        drawState = () => {
+            stateClickItems = [];
+            const canvas = document.getElementById("apiStatus");
+            if (canvas.getContext) {
+                const ctx = canvas.getContext("2d");
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // xLeft = -300
+                // yRow = 250
+                // ctx.rotate((Math.PI / 180) * -55);
+                // for(let i = state.length - 1; i >= 0; i--) {
+                //     ctx.textBaseline = "middle";
+                //     ctx.font = "14px serif";
+                //     const m = ctx.measureText(state[i].name);
+                //     if(state[i].status == "Error") {
+                //         ctx.fillStyle = "rgba(250, 150, 180, .7)";
+                //     } else if(state[i].status == "Complete") {
+                //         ctx.fillStyle = "rgba(150, 250, 180, .7)";
+                //     } else if(state[i].status == "Void/Skip") {
+                //         ctx.fillStyle = "rgba(250, 250, 180, .7)";
+                //     } else {
+                //         ctx.fillStyle = "rgba(100, 150, 180, .7)";
+                //     }
+                //     roundedRect(ctx, 10 + xLeft, yRow, 10 + m.width, 30, 5);
+                //     ctx.fill();
+                //     ctx.fillStyle = "rgb(0, 0, 0)";
+                //     ctx.fillText(state[i].name, 15 + xLeft, 30/2 + yRow);
+
+                //     xLeft += 25;
+                //     yRow += 35;
+                // }
+                // ctx.rotate((Math.PI / 180) * 55);
+                
+                let yRow = 15;
+                for(let i = stateItems.length - 1; i >= 0; i--) {
+                    ctx.textBaseline = "middle";
+                    ctx.font = "14px serif";
+                    const m = ctx.measureText(stateItems[i].name);
+                    if(stateItems[i].status == "Error") {
+                        ctx.fillStyle = "rgba(250, 150, 180, .7)";
+                    } else if(stateItems[i].status == "Complete") {
+                        ctx.fillStyle = "rgba(150, 250, 180, .7)";
+                    } else if(stateItems[i].status == "Void/Skip") {
+                        ctx.fillStyle = "rgba(250, 250, 180, .7)";
+                    } else if(stateItems[i].status == "Creating") {
+                        ctx.fillStyle = "rgba(80, 50, 80, .7)";
+                    } else {
+                        ctx.fillStyle = "rgba(100, 150, 180, .7)";
+                    }
+                    roundedRect(ctx, 15, yRow, 30 + m.width, 30, 5);
+                    ctx.fill();
+                    ctx.fillStyle = "rgb(0, 0, 0)";
+                    ctx.fillText(stateItems[i].name, 20, 30/2 + yRow);
+
+                    if(stateItems[i].status == "Error" || stateItems[i].status == "Creating") {
+                        roundedRect(ctx, 30 + m.width, yRow + 8, 12, 12, 5);
+                        ctx.fillText("X", 31 + m.width, yRow + 15);
+                        stateClickItems.push({
+                            x: 30 + m.width,
+                            y: yRow + 8,
+                            w: 12,
+                            h: 12,
+                            id: stateItems[i].id,
+                        })
+                    }
+                    yRow += 35;
+                }
+            }
+            
+            if(stateItems[stateItems.length-1].status==="Complete" || stateItems[stateItems.length-1].status==="Void/Skip") {
+                loadingState = false;
+                getBranch();
+            } else if(stateItems[stateItems.length-1].status==="Error") {
+                loadingState = false;
+                // show error
+                const canvas = document.getElementById("gitCanvas");
+                if (canvas.getContext) {
+                    const ctx = canvas.getContext("2d");
+                    //ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = "rgba(250, 0, 0, .2)";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.clearRect((canvas.width/2)-100, (canvas.height/2)-35, 200, 70);
+                    ctx.fillStyle = "rgb(0, 0, 0)";
+                    ctx.strokeRect((canvas.width/2)-100, (canvas.height/2)-35, 200, 70);
+                    ctx.textBaseline = "middle";
+                    ctx.font = "44px serif";
+                    const m = ctx.measureText("Error");
+                    ctx.fillText("Error", (canvas.width/2)-(m.width/2), canvas.height/2);
+                }
+            } else {
+                // loading
+                if(!loadingState) {
+                    loadingState = true
+                    const canvas = document.getElementById("gitCanvas");
+                    if (canvas.getContext) {
+                        const ctx = canvas.getContext("2d");
+                        //ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                        ctx.fillStyle = "rgba(0, 0, 0, .2)";
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.clearRect((canvas.width/2)-100, (canvas.height/2)-35, 200, 70);
+                        ctx.fillStyle = "rgb(0, 0, 0)";
+                        ctx.strokeRect((canvas.width/2)-100, (canvas.height/2)-35, 200, 70);
+                        ctx.textBaseline = "middle";
+                        ctx.font = "44px serif";
+                        const m = ctx.measureText("Loading");
+                        ctx.fillText("Loading", (canvas.width/2)-(m.width/2), canvas.height/2);
+                    }
+                }
+            }
+        }
+        //window.addEventListener("load", draw);
+        window.addEventListener("load", initPage);
+
+        const canvas = document.getElementById("gitCanvas");
+        canvas.addEventListener(
+            "mousedown",
+            (e) => {
+                console.log(e.offsetX, e.offsetY);
+                selectedBranch = getBranchAtLoc(e.offsetX, e.offsetY);
+                if(selectedBranch) {
+                    console.log(selectedBranch);
+                    if(!selectedBranch.selected && !drawing) {
+                        //send to api to checkout that branch
+                        fetch('/api/checkout', {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({
+                                branch: selectedBranch.name
+                            })
+                        })
+                            .then(response => response.json())
+                            .then(res => {
+                                console.log(res);
+                                //getBranch();
+                            });
+                    }
+                }
+            },
+            false,
+        );
+        const c2 = document.getElementById("apiStatus");
+        c2.addEventListener(
+            "mousedown",
+            (e) => {
+                console.log(e.offsetX, e.offsetY);
+                item = getStateClickAtLoc(e.offsetX, e.offsetY);
+                if(item) {
+                    console.log(item);
+                    //send to api to checkout that branch
+                    fetch(`/api/state/${item.id}/void`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                    })
+                        .then(response => response.json())
+                        .then(res => {
+                            console.log(res);
+                            //getBranch();
+                        });
+                }
+            },
+            false,
+        );
+    </script>
+	<!-- <script src="index.js"></script> -->
+  </body>
+</html>
